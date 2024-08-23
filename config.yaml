@@ -1,0 +1,9 @@
+#改成需要的关键词
+keyword: 
+  - 秒杀 
+  - test
+#Jellyfin中Webhook Url地址
+receive_url: 'http://localhost:11451'
+
+#需要转发的地址
+forword_url: 'http://localhost:11721/send_group_msg'
