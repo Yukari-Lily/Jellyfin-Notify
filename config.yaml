@@ -49,4 +49,4 @@ keyword:
 receive_url: 'http://localhost:11451'
 
 #转发的地址
-forword_url: 'http://localhost:11721/send_group_msg'
+forward_url: 'http://localhost:11721/send_group_msg'
