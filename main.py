@@ -9,18 +9,21 @@ def load_config():
         return yaml.safe_load(f)
 
 class KeywordFilterHandler(http.server.BaseHTTPRequestHandler):
-    previous_keyword = []
+    config = load_config()
+    previous_keyword = set(config['keyword']) 
 
     def load_config(self):
         config = load_config()
-        self.keyword = config.get('keyword', [])
+        self.keyword = set(config['keyword'])
+        self.forward_url = config.get('forward_url', '')
+        self.receive_url = config.get('receive_url', '')
 
-        new_keyword = set(self.keyword) - set(self.previous_keyword)
+        added_keyword = set(self.keyword) - set(self.previous_keyword)
         removed_keyword = set(self.previous_keyword) - set(self.keyword)
 
-        if new_keyword or removed_keyword:
-            if new_keyword:
-                print(f"已新增关键词：[{', '.join(new_keyword)}]")
+        if added_keyword or removed_keyword:
+            if added_keyword:
+                print(f"已新增关键词：[{', '.join(added_keyword)}]")
             if removed_keyword:
                 print(f"已删去关键词：[{', '.join(removed_keyword)}]")
         
