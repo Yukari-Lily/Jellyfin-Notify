@@ -49,7 +49,7 @@ def run():
     config = load_config()
     port = int(config['receive_url'].split(':')[-1])
     server_address = ('', port)
-    print(f"已配置关键词：{config['keyword']}\n已配置监听地址：{config['receive_url']}\n已配置转发地址：{config['forword_url']}")
+    print(f"已配置关键词：{config['keyword']}\n已配置监听地址：{config['receive_url']}\n已配置转发地址：{config['forward_url']}")
     httpd = http.server.HTTPServer(server_address, KeywordFilterHandler)
     print(f'开始监听端口：{port}\nKira~☆')
     httpd.serve_forever()
