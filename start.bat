@@ -1,3 +1,3 @@
 @echo off
 title Post-Filter-Forward
-python main.py
+C:\Users\Yukari\AppData\Local\Programs\Python\Python38\python.exe main.py

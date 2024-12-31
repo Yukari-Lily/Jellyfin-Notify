@@ -53,9 +53,12 @@ keyword:
   - 平凡职业造就世界最强
   - 龙珠大魔
 
+  #25.1
+  - 贝希摩斯
+  - 命运
 
 #Jellyfin中Webhook Url地址
 receive_url: 'http://localhost:11451'
 
 #转发的地址
-forward_url: 'http://localhost:11721/send_group_msg'
+forward_url: 'http://127.0.0.1:11721/send_group_msg'
