@@ -166,6 +166,9 @@ keyword:
   - 帝乃三姐妹意外地容易相处
   - 异形
 
+  #25.10
+  - 永久的黄昏
+
   
 #Jellyfin中Webhook Url地址
 receive_url: 'http://localhost:11451'
