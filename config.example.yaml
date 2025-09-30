@@ -1,0 +1,28 @@
+﻿server_url: "http://127.0.0.1:8080"
+username: "your_username"
+password: "your_password"
+
+forward_url: "http://127.0.0.1:5000/send_group_msg"
+group_id: 1234567890
+
+filters:
+  whitelist:
+    enabled: false
+    keywords: [""]
+  blacklist:
+    enabled: false
+    keywords: [""]
+
+library_policies:
+  - libraries: [""]
+    mode: "per_episode"
+  - libraries: [""]
+    mode: "season_summary"
+  - libraries: [""]
+    mode: "album_only"
+  - libraries: [""]
+    mode: "mute"
+
+dedupe:
+  season_summary_delay_seconds: 300
+  movie_delay_seconds: 300
