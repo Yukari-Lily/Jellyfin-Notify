@@ -431,7 +431,7 @@ class RealtimeItemAdded:
         backoff = 1
         while True:
             try:
-                async with websockets.connect(ws_url + params, extra_headers=headers, ping_interval=30) as ws:
+                async with websockets.connect(ws_url + params, ping_interval=30) as ws:
                     backoff = 1
                     await ws.send(json.dumps({"MessageType": "KeepAlive"}))
                     async for raw in ws:
