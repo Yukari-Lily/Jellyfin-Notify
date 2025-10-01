@@ -10,14 +10,11 @@ import yaml
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-
 CONFIG_FILE = "config.yaml"
-
 
 def load_config() -> Dict:
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
-
 
 class RealtimeItemAdded:
 
@@ -36,6 +33,10 @@ class RealtimeItemAdded:
         self.blacklist = [str(x).lower() for x in (bl.get("keywords") or [])]
 
         self.library_policies = self._normalize_policies(self.cfg.get("library_policies", []))
+        self.library_policies_norm: Dict[str, Dict] = {}
+        for k, v in self.library_policies.items():
+            if isinstance(k, str):
+                self.library_policies_norm[self._norm_name(k)] = v
         self.client = "Yukari Notify Bot"
         self.device = "Yukari Notify Bot"
         self.version = "1.0.0"
@@ -46,6 +47,7 @@ class RealtimeItemAdded:
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
         self._library_cache: Dict[str, Tuple[str, str]] = {}
+        self._ancestors_cache: Dict[str, List[Dict]] = {}
         dedupe_cfg = (self.cfg.get("dedupe") or {})
         try:
             self.season_summary_delay = int(
@@ -65,6 +67,7 @@ class RealtimeItemAdded:
         self._season_flush_task: Optional[asyncio.Task] = None
         self._movie_queue: Dict[str, Dict[str, Any]] = {}
         self._movie_lock: Optional[asyncio.Lock] = None
+        self._warned_libs: set[str] = set()
 
     def _normalize_policies(self, arr):
         """Expand to {libraryNameOrId: {mode}}; supports 'library' or 'libraries'."""
@@ -84,7 +87,38 @@ class RealtimeItemAdded:
 
     def _pick_policy(self, lib_id: str, lib_name: str):
         """Prefer library ID, then name."""
-        return self.library_policies.get(lib_id) or self.library_policies.get(lib_name)
+        p = self.library_policies.get(lib_id)
+        if p:
+            return p
+        p = self.library_policies.get(lib_name)
+        if p:
+            return p
+        norm = self._norm_name(lib_name)
+        p = self.library_policies_norm.get(norm)
+        if p:
+            return p
+        if norm:
+            for k, v in self.library_policies_norm.items():
+                if not k:
+                    continue
+                if k in norm or norm in k:
+                    return v
+        return None
+
+    def _norm_name(self, s: Optional[str]) -> str:
+        if not s:
+            return ""
+        table = str.maketrans({
+            "（": "(",
+            "）": ")",
+            "【": "[",
+            "】": "]",
+            "｛": "{",
+            "｝": "}",
+        })
+        out = s.translate(table)
+        out = out.replace("\u3000", " ").strip().lower()
+        return out
 
     def login(self):
         headers = {
@@ -195,6 +229,33 @@ class RealtimeItemAdded:
         if item_id and item_id not in self._library_cache:
             self._library_cache[item_id] = lib
         return lib
+
+    def get_ancestors(self, item_key: str) -> List[Dict]:
+        if not item_key:
+            return []
+        if item_key in self._ancestors_cache:
+            return self._ancestors_cache[item_key]
+        r = None
+        try:
+            r = self.session.get(f"{self.server}/Items/{item_key}/Ancestors", timeout=15)
+            r.raise_for_status()
+            arr = r.json() or []
+            self._ancestors_cache[item_key] = arr
+            return arr
+        except Exception:
+            return []
+
+    def _pick_policy_for_item(self, item: Dict):
+        key = item.get("SeriesId") or item.get("ParentId") or item.get("Id")
+        ancestors = self.get_ancestors(key)
+        for a in ancestors:
+            pid = a.get("Id") or ""
+            pname = a.get("Name") or ""
+            pol = self._pick_policy(pid, pname)
+            if pol:
+                return pol
+        lib_id, lib_name = self.get_library_for(item)
+        return self._pick_policy(lib_id, lib_name)
 
     def _hay_from_item(self, item: Dict) -> str:
         parts = [
@@ -359,7 +420,7 @@ class RealtimeItemAdded:
             image_item_id = series_id
         elif t == "Movie":
             dur = hhmmss_for_video()
-            title = f"{name} 更新啦！\n电影：{name} ({year})"
+            title = f"{name} ({year}) 更新啦！"
             subject = f"{name} ({year})" if year else name
             msg = title + (f"\n时长：{dur}" if dur else "")
             image_item_id = item.get("Id")
@@ -382,7 +443,7 @@ class RealtimeItemAdded:
         return payload
 
     def build_season_payload(self, series_name: str, season_no: int, ep_count: int, series_id: str) -> Dict:
-        title = f"{series_name} 更新啦！\nS{int(season_no):02d}（共 {ep_count} 集）"
+        title = f"{series_name} 更新啦！\n第{int(season_no):02d}季（共 {ep_count} 集）"
         image_url = f"{self.server}/Items/{series_id}/Images/Primary"
         payload = {"group_id": self.group_id, "message": f"{title}\n[CQ:image,file={image_url}]", "subject": f"{series_name} S{int(season_no):02d} 合集"}
         return payload
@@ -469,11 +530,20 @@ class RealtimeItemAdded:
                             lib_id, lib_name, its = pack["lib_id"], pack["lib_name"], pack["items"]
                             policy = self._pick_policy(lib_id, lib_name) or {}
                             mode = policy.get("mode", "per_episode")
+                            if not policy:
+                                key = f"{lib_id or 'NA'}::{lib_name or 'NA'}"
+                                if key not in self._warned_libs:
+                                    print(f"[提示] 未为该库匹配到策略，按 per_episode 处理：Id={lib_id or 'NA'}, Name={lib_name or 'NA'}, Norm={self._norm_name(lib_name)}")
+                                    self._warned_libs.add(key)
                             if mode == "mute":
                                 continue
                             if mode == "season_summary":
                                 groups: Dict[Tuple[str, int, str], List[Dict]] = defaultdict(list)
                                 for it in its:
+                                    pol_it = self._pick_policy_for_item(it) or policy
+                                    mode_it = pol_it.get("mode", "per_episode")
+                                    if mode_it != "season_summary":
+                                        continue
                                     if it.get("Type") == "Episode":
                                         sid = it.get("SeriesId") or ""
                                         s_no = int(it.get("ParentIndexNumber") or 0)
@@ -486,12 +556,20 @@ class RealtimeItemAdded:
                                         continue
                                     await self._queue_season_summary(sid, s_no, s_name, eps)
                                 for it in its:
+                                    pol_it = self._pick_policy_for_item(it) or policy
+                                    mode_it = pol_it.get("mode", "per_episode")
+                                    if mode_it != "season_summary":
+                                        continue
                                     if (it.get("Type") or "") == "Movie":
                                         if not self._pass_filters(self._hay_from_item(it)):
                                             continue
                                         await self._queue_movie(it)
                             elif mode == "album_only":
                                 for it in its:
+                                    pol_it = self._pick_policy_for_item(it) or policy
+                                    mode_it = pol_it.get("mode", "per_episode")
+                                    if mode_it != "album_only":
+                                        continue
                                     if (it.get("Type") or "") != "MusicAlbum":
                                         continue
                                     if not self._pass_filters(self._hay_from_item(it)):
@@ -500,7 +578,29 @@ class RealtimeItemAdded:
                                     await self.forward_async(payload)
                             else:
                                 for it in its:
+                                    pol_it = self._pick_policy_for_item(it) or policy
+                                    mode_it = pol_it.get("mode", "per_episode")
                                     t = (it.get("Type") or "")
+                                    if mode_it == "mute":
+                                        continue
+                                    if mode_it == "album_only":
+                                        if (t == "MusicAlbum") and self._pass_filters(self._hay_from_item(it)):
+                                            payload = self.build_payload(it)
+                                            await self.forward_async(payload)
+                                        continue
+                                    if mode_it == "season_summary":
+                                        if t == "Episode":
+                                            sid = it.get("SeriesId") or ""
+                                            s_no = int(it.get("ParentIndexNumber") or 0)
+                                            s_name = it.get("SeriesName") or ""
+                                            if self._pass_filters(self._hay_for_series(s_name, it)):
+                                                await self._queue_season_summary(sid, s_no, s_name, [it])
+                                            continue
+                                        if t == "Movie":
+                                            if self._pass_filters(self._hay_from_item(it)):
+                                                await self._queue_movie(it)
+                                            continue
+                                    # per_episode default
                                     if t == "Episode":
                                         if not self._pass_filters(self._hay_from_item(it)):
                                             continue
@@ -518,12 +618,10 @@ class RealtimeItemAdded:
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30)
 
-
 def main():
     bot = RealtimeItemAdded()
     bot.login()
     asyncio.run(bot.run_ws())
-
 
 if __name__ == "__main__":
     main()

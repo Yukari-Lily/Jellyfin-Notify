@@ -1,10 +1,11 @@
-﻿server_url: "http://127.0.0.1:8080"
+﻿# Jellyfin地址与账号密码
+server_url: "http://127.0.0.1:8080"
 username: "your_username"
 password: "your_password"
-
+# Napcat/LLonebot等HTTP API地址与群号
 forward_url: "http://127.0.0.1:5000/send_group_msg"
 group_id: 1234567890
-
+# 推送关键字黑白名单
 filters:
   whitelist:
     enabled: false
@@ -12,17 +13,17 @@ filters:
   blacklist:
     enabled: false
     keywords: [""]
-
+# 媒体库分类与推送模式，per_episode单集适用于新番，season_summary季度总结适用于剧集等，album_only适用于音乐之推送专辑，mute不推送
 library_policies:
-  - libraries: [""]
+  - libraries: ["新番"]
     mode: "per_episode"
-  - libraries: [""]
+  - libraries: ["电视剧"]
     mode: "season_summary"
-  - libraries: [""]
+  - libraries: ["音乐"]
     mode: "album_only"
   - libraries: [""]
     mode: "mute"
-
+# 其他设置
 dedupe:
-  season_summary_delay_seconds: 300
-  movie_delay_seconds: 300
+  season_summary_delay_seconds: 300   #季度推送延时，防止多次推送
+  movie_delay_seconds: 300            #电影推送延时，防止多次推送
