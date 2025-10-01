@@ -27,3 +27,4 @@ library_policies:
 dedupe:
   season_summary_delay_seconds: 300   #季度推送延时，防止多次推送
   movie_delay_seconds: 300            #电影推送延时，防止多次推送
+  episode_suppress_seconds: 1800      #单集推送抑制时间，防止重复推送

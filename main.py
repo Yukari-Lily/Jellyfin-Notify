@@ -62,12 +62,28 @@ class RealtimeItemAdded:
             self.movie_delay_seconds = 300
         self.season_summary_delay = max(1, self.season_summary_delay)
         self.movie_delay_seconds = max(1, self.movie_delay_seconds)
+        self.episode_suppress_seconds = int(dedupe_cfg.get("episode_suppress_seconds", 1800))
         self._season_batches: Dict[Tuple[str, int], Dict[str, Any]] = {}
         self._season_lock: Optional[asyncio.Lock] = None
         self._season_flush_task: Optional[asyncio.Task] = None
         self._movie_queue: Dict[str, Dict[str, Any]] = {}
         self._movie_lock: Optional[asyncio.Lock] = None
         self._warned_libs: set[str] = set()
+        self._episode_sent_until: Dict[str, float] = {}
+
+    def _episode_suppressed(self, item_id: Optional[str]) -> bool:
+        if not item_id:
+            return False
+        now = time.time()
+        stale = [k for k, exp in self._episode_sent_until.items() if exp <= now]
+        for k in stale:
+            self._episode_sent_until.pop(k, None)
+        exp = self._episode_sent_until.get(item_id)
+        if exp and exp > now:
+            return True
+        self._episode_sent_until[item_id] = now + max(1, int(self.episode_suppress_seconds))
+        return False
+
 
     def _normalize_policies(self, arr):
         """Expand to {libraryNameOrId: {mode}}; supports 'library' or 'libraries'."""
@@ -484,10 +500,6 @@ class RealtimeItemAdded:
 
     async def run_ws(self):
         ws_url = (self.server.replace("http", "ws").rstrip("/")) + "/socket"
-        headers = {
-            "X-Emby-Authorization": f'MediaBrowser Client="{self.client}", Device="{self.device}", DeviceId="{self.device}", Version="{self.version}"',
-            "X-Emby-Token": self.token,
-        }
         params = f"?api_key={self.token}"
         backoff = 1
         while True:
@@ -504,17 +516,10 @@ class RealtimeItemAdded:
                             continue
                         data = msg.get("Data") or msg.get("data") or {}
                         items_added = data.get("ItemsAdded") or data.get("items_added") or []
-                        items_updated = data.get("ItemsUpdated") or data.get("items_updated") or []
-                        ids_combined: List[str] = []
-                        for _id in (items_added or []):
-                            if _id and _id not in ids_combined:
-                                ids_combined.append(_id)
-                        for _id in (items_updated or []):
-                            if _id and _id not in ids_combined:
-                                ids_combined.append(_id)
-                        if not ids_combined:
+                        ids_added = list(dict.fromkeys([_id for _id in items_added if _id]))
+                        if not ids_added:
                             continue
-                        items = self.get_items_by_ids(ids_combined)
+                        items = self.get_items_by_ids(ids_added)
                         if not items:
                             continue
                         by_lib: Dict[str, Dict] = {}
@@ -600,9 +605,11 @@ class RealtimeItemAdded:
                                             if self._pass_filters(self._hay_from_item(it)):
                                                 await self._queue_movie(it)
                                             continue
-                                    # per_episode default
                                     if t == "Episode":
                                         if not self._pass_filters(self._hay_from_item(it)):
+                                            continue
+                                        ep_id = str(it.get("Id") or "")
+                                        if self._episode_suppressed(ep_id):
                                             continue
                                         payload = self.build_payload(it)
                                         await self.forward_async(payload)
