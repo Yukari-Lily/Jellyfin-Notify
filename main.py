@@ -427,7 +427,7 @@ class RealtimeItemAdded:
         elif t == "MusicAlbum":
             album = name or (item.get("Album") or "")
             artist = item.get("AlbumArtist") or (", ".join(item.get("Artists", [])) if item.get("Artists") else "")
-            title = f"新专辑！：{artist} - {album} ({year})" if artist else f"新专辑！：{album} ({year})"
+            title = f"新专辑！：{album} - {artist} ({year})" if artist else f"新专辑！：{album} ({year})"
             subject = f"{album} - {artist}" if artist else album
             msg = title
             image_item_id = item.get("Id")
